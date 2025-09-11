@@ -3,7 +3,12 @@ data/
 *.mp3
 *.png
 *.txt
+
 !.gitignore
-!.dockerignore
 !requirements.txt
+!Procfile
+!nixpacks.toml
+!bot.py
+!README*
+
 .env
