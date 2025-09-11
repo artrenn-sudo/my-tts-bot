@@ -1,0 +1,7 @@
+generated/
+data/
+*.mp3
+*.png
+*.txt
+.env
+
