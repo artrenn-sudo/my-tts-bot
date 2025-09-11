@@ -12,7 +12,7 @@ from gtts import gTTS
 from dotenv import load_dotenv
 from fpdf import FPDF
 import openai
- import ctypes.util
+import ctypes.util
 
 FFMPEG_PATH = os.getenv("FFMPEG_PATH") or (
     r"C:\Users\as\ffmpeg\bin\ffmpeg.exe" if os.name == "nt" else "/usr/bin/ffmpeg"
