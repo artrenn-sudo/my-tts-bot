@@ -3,5 +3,7 @@ data/
 *.mp3
 *.png
 *.txt
+!.gitignore
+!.dockerignore
+!requirements.txt
 .env
-
