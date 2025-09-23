@@ -2,6 +2,9 @@ import os
 import random
 import asyncio
 import requests
+import io
+import tempfile
+import re
 
 import discord
 from discord.ext import commands
@@ -11,7 +14,7 @@ from discord import File, FFmpegPCMAudio
 from gtts import gTTS
 from dotenv import load_dotenv
 from fpdf import FPDF
-import openai
+from openai import OpenAI
 import ctypes.util
 
 FFMPEG_PATH = os.getenv("FFMPEG_PATH") or (
@@ -41,7 +44,7 @@ print("Opus loaded?", discord.opus.is_loaded())
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-openai.api_key = OPENAI_API_KEY
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 # =========[ DISCORD INTENTS / BOT ]=========
 intents = discord.Intents.default()
@@ -387,6 +390,49 @@ def render_text_board(board, size):
     return "```\n" + "\n".join(lines) + "\n```"
 
 # =========[ MESSAGE EVENTS / TTS ]=========
+# Map tên emoji -> cụm mô tả (bạn tự mở rộng thêm)
+EMOJI_READ_MAP = {
+    "shock": "emoji sốc",
+    "cuoinhechmep": "emoji cười nhếch mép",
+    # ví dụ: "sad": "emoji buồn", "lol": "emoji cười lăn", ...
+}
+
+EMOJI_TOKEN_RE = re.compile(r"<a?:([A-Za-z0-9_]+):\d+>")  # bắt tên trong <:name:id> hoặc <a:name:id>
+PLAINTEXT_EMOJI_RE = re.compile(r"(?<!<):([A-Za-z0-9_]+):(?!\d+>)")  # bắt :name: nhưng tránh trùng với <...>
+
+def _describe_emoji(author_display: str, name: str) -> str:
+    pretty = EMOJI_READ_MAP.get(name.lower(), f"emoji {name.replace('_', ' ')}")
+    return f"{author_display} đã gửi {pretty}"
+
+def preprocess_tts_text_for_emojis_and_stickers(message: discord.Message, text: str) -> str:
+    author_name = message.author.display_name
+
+    # 1) Custom emoji dạng <...>: thay bằng mô tả
+    def repl_custom(m: re.Match) -> str:
+        name = m.group(1)
+        return _describe_emoji(author_name, name)
+
+    text = EMOJI_TOKEN_RE.sub(repl_custom, text)
+
+    # 2) Trường hợp hiếm gặp: bot vẫn thấy dạng :name: (không thành <...>)
+    def repl_plain(m: re.Match) -> str:
+        name = m.group(1)
+        return _describe_emoji(author_name, name)
+
+    text = PLAINTEXT_EMOJI_RE.sub(repl_plain, text)
+
+    # 3) Sticker: thêm mô tả vào cuối (có thể có nhiều cái)
+    if getattr(message, "stickers", None):
+        for s in message.stickers:
+            # s.name là tên sticker; có thể đổi câu cho tự nhiên hơn
+            text += ("" if text.endswith(" ") or text == "" else " ") + f"{author_name} đã gửi sticker {s.name}"
+
+    # 4) Nếu sau cùng rỗng (ví dụ user chỉ gửi emoji mà ta đã “thay hết”), fallback chung
+    if not text.strip():
+        text = f"{author_name} đã gửi emoji"
+
+    return text
+
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -429,45 +475,50 @@ async def on_message(message):
 
     # 🗣️ gTTS voice playback
     elif content.startswith("mt"):
-        vc = discord.utils.get(bot.voice_clients, guild=message.guild)
+		vc = discord.utils.get(bot.voice_clients, guild=message.guild)
 
-        if vc and message.author.voice and message.author.voice.channel == vc.channel:
-            try:
-                parts = message.content.split()
-                lang = "vi"
-                text = ""
+		if vc and message.author.voice and message.author.voice.channel == vc.channel:
+			try:
+				parts = message.content.split()
+				lang = "vi"
+				text = ""
 
-                if len(parts) >= 3 and parts[1] in lang_codes:
-                    lang = parts[1]
-                    text = " ".join(parts[2:])
-                else:
-                    text = message.content[3:].strip()
+				if len(parts) >= 3 and parts[1] in lang_codes:
+					lang = parts[1]
+					text = " ".join(parts[2:])  # phần sau "mt <lang> ..."
+				else:
+					text = message.content[3:].strip()  # phần sau "mt "
 
-                if not text:
-                    await message.channel.send("❌ Bạn chưa nhập nội dung cần nói.")
-                    return
+				# 💬 Biến đổi emoji/sticker thành câu đọc tự nhiên (CHÈN DÒNG NÀY Ở ĐÂY)
+				text = preprocess_tts_text_for_emojis_and_stickers(message, text)
 
-                ensure_dir("generated")
-                out_path = "generated/message.mp3"
+				# Check sau khi preprocess (để trường hợp chỉ có emoji vẫn đọc được)
+				if not text.strip():
+					await message.channel.send("❌ Bạn chưa nhập nội dung cần nói.")
+					return
 
-                tts = gTTS(text=text, lang=lang)
-                tts.save(out_path)
+				ensure_dir("generated")
+				out_path = "generated/message.mp3"
 
-                if vc.is_playing():
-                    while vc.is_playing():
-                        await asyncio.sleep(0.5)
+				tts = gTTS(text=text, lang=lang)
+				tts.save(out_path)
 
-                vc.play(
-                    FFmpegPCMAudio(out_path, executable=FFMPEG_PATH),
-                    after=lambda e: print("✅ Finished speaking")
-                )
+				if vc.is_playing():
+					while vc.is_playing():
+						await asyncio.sleep(0.5)
 
-                print(f"🎤 {message.author.display_name} said: {text}")
+				vc.play(
+					FFmpegPCMAudio(out_path, executable=FFMPEG_PATH),
+					after=lambda e: print("✅ Finished speaking")
+				)
 
-            except Exception as e:
-                print(f"gTTS message error: {e}")
-        else:
-            print(f"❌ {message.author.display_name} tried to TTS, but is not in the same VC as the bot.")
+				print(f"🎤 {message.author.display_name} said: {text}")
+
+			except Exception as e:
+				print(f"gTTS message error: {e}")
+		else:
+			print(f"❌ {message.author.display_name} tried to TTS, but is not in the same VC as the bot.")
+
 
     # ✅ LUÔN đặt cuối hàm để commands hoạt động
     await bot.process_commands(message)
@@ -507,19 +558,16 @@ async def on_voice_state_update(member, before, after):
 @bot.tree.command(name="ask", description="Ask the bot anything!")
 async def ask(interaction: discord.Interaction, *, question: str):
     await interaction.response.defer()
-
     try:
-        response = openai.chat.completions.create(
+        response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": question}]
         )
-        answer = response.choices[0].message.content
-
+        answer = response.choices[0].message.content or "No answer."
         chunks = [answer[i:i+1990] for i in range(0, len(answer), 1990)]
         await interaction.followup.send(f"**❓ You asked:**\n`{question}`")
         for chunk in chunks:
             await interaction.followup.send(chunk)
-
     except Exception as e:
         await interaction.followup.send("An error occurred while fetching a response.")
         print(f"Error: {e}")
@@ -529,13 +577,15 @@ async def speak(interaction: discord.Interaction, *, text: str):
     await interaction.response.defer()
     try:
         ensure_dir("generated")
-        response = openai.audio.speech.create(
-            model="tts-1",
+        file_path = "generated/speech.mp3"
+        # Streaming thẳng ra file
+        with client.audio.speech.with_streaming_response.create(
+            model="tts-1",           # hoặc "gpt-4o-mini-tts" nếu bạn muốn
             voice="nova",
             input=text
-        )
-        file_path = "generated/speech.mp3"
-        response.stream_to_file(file_path)
+        ) as resp:
+            resp.stream_to_file(file_path)
+
         await interaction.followup.send(
             content=f"🗣️ Your input: `{text}`",
             file=File(file_path)
@@ -544,22 +594,24 @@ async def speak(interaction: discord.Interaction, *, text: str):
         await interaction.followup.send("❌ Failed to generate speech.")
         print(f"OpenAI TTS error: {e}")
 
+
 @bot.tree.command(name="generate_image", description="Generate an image based on a prompt.")
 async def generate_image(interaction: discord.Interaction, *, prompt: str):
     await interaction.response.defer()
     try:
         ensure_dir("generated")
-        response = openai.images.generate(
-            model="dall-e-3",
+        result = client.images.generate(
+            model="dall-e-3",        # hoặc "gpt-image-1" nếu bạn dùng model mới
             prompt=prompt,
-            n=1,
-            size="1024x1024"
+            size="1024x1024",
+            n=1
         )
-        image_url = response.data[0].url
+        image_url = result.data[0].url
         image_data = requests.get(image_url).content
         image_path = "generated/generated_image.png"
         with open(image_path, "wb") as f:
             f.write(image_data)
+
         await interaction.followup.send(
             content=f"**🖼️ Prompt:** `{prompt}`",
             file=File(image_path)
@@ -567,15 +619,19 @@ async def generate_image(interaction: discord.Interaction, *, prompt: str):
     except Exception as e:
         await interaction.followup.send("Failed to generate an image.")
         print(f"Error: {e}")
-
+    
 @bot.tree.command(name="upload_file", description="Generate and upload a file with custom content.")
 async def upload_file(interaction: discord.Interaction, *, content: str = "This is a sample file generated by the bot."):
     await interaction.response.defer()
     try:
-        path = "generated_file.txt"
-        with open(path, "w", encoding="utf-8") as f:
+        ensure_dir("generated")
+        # dùng file tạm để tránh đè
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", dir="generated", suffix=".txt") as f:
             f.write(content)
-        await interaction.followup.send("Here is your generated file:", file=File(path))
+            tmp_path = f.name
+
+        await interaction.followup.send("Here is your generated file:", file=File(tmp_path))
+        # (tuỳ chọn) xoá file sau khi gửi: os.remove(tmp_path)
     except Exception as e:
         await interaction.followup.send("Failed to generate the file.")
         print(f"Error: {e}")
@@ -585,13 +641,30 @@ async def upload_pdf(interaction: discord.Interaction, *, content: str = "This i
     await interaction.response.defer()
     try:
         ensure_dir("generated")
-        file_path = "generated/generated_file.pdf"
+
+        # ---- PDF với Unicode (tiếng Việt) ----
+        # Đảm bảo bạn có file font tại assets/fonts/DejaVuSans.ttf
+        font_path = os.path.join("assets", "fonts", "DejaVuSans.ttf")
+        if not os.path.isfile(font_path):
+            await interaction.followup.send("❌ Missing font file for Unicode PDF (assets/fonts/DejaVuSans.ttf).")
+            return
+
         pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=15)
         pdf.add_page()
-        pdf.set_font("Arial", size=12)
-        pdf.multi_cell(0, 10, content)
+        pdf.add_font("DejaVu", "", font_path, uni=True)
+        pdf.set_font("DejaVu", size=12)
+
+        # multi_cell để xuống dòng tự động
+        pdf.multi_cell(0, 8, content)
+
+        # Lưu ra file tạm
+        fd, file_path = tempfile.mkstemp(prefix="generated_", suffix=".pdf", dir="generated")
+        os.close(fd)  # đóng handle thấp
         pdf.output(file_path)
+
         await interaction.followup.send("Here is your generated PDF:", file=File(file_path))
+        # (tuỳ chọn) xoá file sau khi gửi: os.remove(file_path)
     except Exception as e:
         await interaction.followup.send("Failed to generate the PDF.")
         print(f"Error: {e}")
