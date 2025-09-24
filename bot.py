@@ -390,48 +390,66 @@ def render_text_board(board, size):
     return "```\n" + "\n".join(lines) + "\n```"
 
 # =========[ MESSAGE EVENTS / TTS ]=========
-# Map tên emoji -> cụm mô tả (bạn tự mở rộng thêm)
+# Map tên emoji -> cách đọc (để hết chữ thường cho chắc)
 EMOJI_READ_MAP = {
-    "shock": "emoji sốc",
-    "cuoinhechmep": "emoji cười nhếch mép",
-    # ví dụ: "sad": "emoji buồn", "lol": "emoji cười lăn", ...
+    "shock": "sốc",
+    "cuoinhechmep": "cười nhếch mép",
+    "buonqua": "buồn quá",
+    "jztr": "gì dị trời",
+    "mt_xiu": "xỉu",
+    "6107pepeclap": "vỗ tay vỗ tay",
+    "meu": "mếu",
+    "rosewtf": "Rô giề oát đờ phắc",
+    "jennieffs": "Chen ni nhức nhức cái đầu",
+    "jenniesmh": "chen ni lắc lắc đầu",
+    "giay": "giãy đành đạch",
+    "giaydanhdach": "giãy đành đạch",
+    "mt_camxuc": "Mít thy cảm xúc",
+    "airenepout": "Ái Linh chu mỏ",
+    "yerisad": "xúc động",
+    "like": "ô kê nha",
+    "doi~1": "Ngọi dỗi",
+    "gianmisthy": "Gián mít thy là sao zị trời",
+    "guongcuoi": "gượng cười",
+    "embewow": "Ồ ồ ồ ooooooo",
+    "ahahaha": "á há há há",
+    "2like": "ô kê nha, lai nha",
+    "ngat": "ngất",
+    "chao": "chào",
+    "suynghi": "si si nghĩ nghĩ",
+    "chongnanh": "chống nhạnh",
+    "detcoi": "để tau coi",
+    "deroicoi": "để ròi coi",
+    "dead": "trết",
 }
+# Chuẩn hoá key về lowercase (phòng lỡ tay thêm key hoa/thường lẫn lộn)
+EMOJI_READ_MAP = {k.lower(): v for k, v in EMOJI_READ_MAP.items()}
 
-EMOJI_TOKEN_RE = re.compile(r"<a?:([A-Za-z0-9_]+):\d+>")  # bắt tên trong <:name:id> hoặc <a:name:id>
-PLAINTEXT_EMOJI_RE = re.compile(r"(?<!<):([A-Za-z0-9_]+):(?!\d+>)")  # bắt :name: nhưng tránh trùng với <...>
+# Regex bắt cả custom token <:name:id> / <a:name:id> và dạng gõ tay :name:
+EMOJI_TOKEN_RE = re.compile(r"<a?:([A-Za-z0-9_\-~]+):\d+>")
+PLAINTEXT_EMOJI_RE = re.compile(r"(?<!<):([A-Za-z0-9_\-~]+):(?!\d+>)")
 
-def _describe_emoji(author_display: str, name: str) -> str:
-    pretty = EMOJI_READ_MAP.get(name.lower(), f"emoji {name.replace('_', ' ')}")
-    return f"{author_display} đã gửi {pretty}"
+def preprocess_emoji_text(text: str, message: discord.Message) -> str:
+    # 1) Thay các custom emoji đã được Discord parse sẵn (message.emojis)
+    for e in getattr(message, "emojis", []):
+        token = str(e)                       # "<:name:id>" hoặc "<a:name:id>"
+        name  = (e.name or "").lower()
+        rep   = EMOJI_READ_MAP.get(name, name.replace("_", " "))
+        text  = text.replace(token, rep)
 
-def preprocess_tts_text_for_emojis_and_stickers(message: discord.Message, text: str) -> str:
-    author_name = message.author.display_name
+    # 2) Thay các token custom còn sót theo regex (phòng hợp không có trong message.emojis)
+    text = EMOJI_TOKEN_RE.sub(
+        lambda m: EMOJI_READ_MAP.get(m.group(1).lower(), m.group(1).replace("_", " ")),
+        text
+    )
 
-    # 1) Custom emoji dạng <...>: thay bằng mô tả
-    def repl_custom(m: re.Match) -> str:
-        name = m.group(1)
-        return _describe_emoji(author_name, name)
+    # 3) Thay trường hợp người dùng gõ thủ công :name:
+    text = PLAINTEXT_EMOJI_RE.sub(
+        lambda m: EMOJI_READ_MAP.get(m.group(1).lower(), m.group(1).replace("_", " ")),
+        text
+    )
 
-    text = EMOJI_TOKEN_RE.sub(repl_custom, text)
-
-    # 2) Trường hợp hiếm gặp: bot vẫn thấy dạng :name: (không thành <...>)
-    def repl_plain(m: re.Match) -> str:
-        name = m.group(1)
-        return _describe_emoji(author_name, name)
-
-    text = PLAINTEXT_EMOJI_RE.sub(repl_plain, text)
-
-    # 3) Sticker: thêm mô tả vào cuối (có thể có nhiều cái)
-    if getattr(message, "stickers", None):
-        for s in message.stickers:
-            # s.name là tên sticker; có thể đổi câu cho tự nhiên hơn
-            text += ("" if text.endswith(" ") or text == "" else " ") + f"{author_name} đã gửi sticker {s.name}"
-
-    # 4) Nếu sau cùng rỗng (ví dụ user chỉ gửi emoji mà ta đã “thay hết”), fallback chung
-    if not text.strip():
-        text = f"{author_name} đã gửi emoji"
-
-    return text
+    return text.strip()
 
 @bot.event
 async def on_message(message):
@@ -475,50 +493,48 @@ async def on_message(message):
 
     # 🗣️ gTTS voice playback
     elif content.startswith("mt"):
-		vc = discord.utils.get(bot.voice_clients, guild=message.guild)
+        vc = discord.utils.get(bot.voice_clients, guild=message.guild)
 
-		if vc and message.author.voice and message.author.voice.channel == vc.channel:
-			try:
-				parts = message.content.split()
-				lang = "vi"
-				text = ""
+        if vc and message.author.voice and message.author.voice.channel == vc.channel:
+            try:
+                parts = message.content.split()
+                lang = "vi"
+                text = ""
 
-				if len(parts) >= 3 and parts[1] in lang_codes:
-					lang = parts[1]
-					text = " ".join(parts[2:])  # phần sau "mt <lang> ..."
-				else:
-					text = message.content[3:].strip()  # phần sau "mt "
+                if len(parts) >= 3 and parts[1] in lang_codes:
+                    lang = parts[1]
+                    text = " ".join(parts[2:])   # sau "mt <lang> ..."
+                else:
+                    text = message.content[3:].strip()  # sau "mt "
 
-				# 💬 Biến đổi emoji/sticker thành câu đọc tự nhiên (CHÈN DÒNG NÀY Ở ĐÂY)
-				text = preprocess_tts_text_for_emojis_and_stickers(message, text)
+                # 🔁 Thay <:name:id> / :name: → câu đọc
+                text = preprocess_emoji_text(text, message)
 
-				# Check sau khi preprocess (để trường hợp chỉ có emoji vẫn đọc được)
-				if not text.strip():
-					await message.channel.send("❌ Bạn chưa nhập nội dung cần nói.")
-					return
+                if not text.strip():
+                    await message.channel.send("❌ Bạn chưa nhập nội dung cần nói.")
+                    return
 
-				ensure_dir("generated")
-				out_path = "generated/message.mp3"
+                ensure_dir("generated")
+                out_path = "generated/message.mp3"
 
-				tts = gTTS(text=text, lang=lang)
-				tts.save(out_path)
+                tts = gTTS(text=text, lang=lang)
+                tts.save(out_path)
 
-				if vc.is_playing():
-					while vc.is_playing():
-						await asyncio.sleep(0.5)
+                if vc.is_playing():
+                    while vc.is_playing():
+                        await asyncio.sleep(0.5)
 
-				vc.play(
-					FFmpegPCMAudio(out_path, executable=FFMPEG_PATH),
-					after=lambda e: print("✅ Finished speaking")
-				)
+                vc.play(
+                    FFmpegPCMAudio(out_path, executable=FFMPEG_PATH),
+                    after=lambda e: print("✅ Finished speaking")
+                )
 
-				print(f"🎤 {message.author.display_name} said: {text}")
+                print(f"🎤 {message.author.display_name} said: {text}")
 
-			except Exception as e:
-				print(f"gTTS message error: {e}")
-		else:
-			print(f"❌ {message.author.display_name} tried to TTS, but is not in the same VC as the bot.")
-
+            except Exception as e:
+                print(f"gTTS message error: {e}")
+        else:
+            print(f"❌ {message.author.display_name} tried to TTS, but is not in the same VC as the bot.")
 
     # ✅ LUÔN đặt cuối hàm để commands hoạt động
     await bot.process_commands(message)
