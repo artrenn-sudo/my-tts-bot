@@ -17,19 +17,19 @@ from fpdf import FPDF
 from openai import OpenAI
 import ctypes.util
 
+# =========[ FFMPEG PATH ]=========
 FFMPEG_PATH = os.getenv("FFMPEG_PATH") or (
     r"C:\Users\as\ffmpeg\bin\ffmpeg.exe" if os.name == "nt" else "/usr/bin/ffmpeg"
 )
 
+# =========[ OPUS LOAD ]=========
 def load_opus_crossplatform():
     """Load libopus cho Windows & Linux (Railway)."""
     if discord.opus.is_loaded():
         return
     if os.name == "nt":
-        # Windows: ưu tiên ENV, không có thì dùng đường dẫn cố định của bạn
         path = os.getenv("OPUS_PATH") or r"C:\Users\as\my-tts-bot\opus.dll"
     else:
-        # Linux: ưu tiên ENV, không có thì tìm lib hệ thống
         path = os.getenv("OPUS_PATH") or ctypes.util.find_library("opus") or "libopus.so.0"
     discord.opus.load_opus(path)
 
@@ -44,7 +44,7 @@ print("Opus loaded?", discord.opus.is_loaded())
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 # =========[ DISCORD INTENTS / BOT ]=========
 intents = discord.Intents.default()
@@ -61,7 +61,6 @@ def ensure_dir(p: str):
 # =========[ READY ]=========
 @bot.event
 async def on_ready():
-    """Sync commands when bot is ready."""
     try:
         synced = await bot.tree.sync()
         print(f"{bot.user} is online and {len(synced)} app commands are synced!")
@@ -78,7 +77,6 @@ async def on_ready():
 # =========[ VOICE JOIN / LEAVE ]=========
 @bot.tree.command(name="join", description="Make the bot join your voice channel.")
 async def join(interaction: discord.Interaction):
-    """Join the user's current voice channel, ensuring any old session is closed."""
     if not interaction.user.voice or not interaction.user.voice.channel:
         await interaction.response.send_message("⚠️ Bạn cần vào kênh thoại trước khi gọi bot!", ephemeral=True)
         return
@@ -137,7 +135,6 @@ async def roll_dice(interaction: discord.Interaction):
         async def roll_button(self, interaction: discord.Interaction, button: Button):
             result = random.randint(1, 6)
             await interaction.response.edit_message(content=f"🎲 You rolled a **{result}**!", view=self)
-
     await interaction.response.send_message("Click the button to roll the dice!", view=DiceView())
 
 @bot.tree.command(name="flip_coin", description="Flip a coin with button.")
@@ -147,7 +144,6 @@ async def flip_coin(interaction: discord.Interaction):
         async def flip_button(self, interaction: discord.Interaction, button: Button):
             result = random.choice(["Heads", "Tails"])
             await interaction.response.edit_message(content=f"🪙 The coin landed on **{result}**!", view=self)
-
     await interaction.response.send_message("Click the button to flip a coin!", view=CoinView())
 
 @bot.tree.command(name="rps", description="Play Rock, Paper, Scissors vs the bot.")
@@ -156,15 +152,12 @@ async def rps(interaction: discord.Interaction):
         @discord.ui.button(label="Rock 🪨", style=discord.ButtonStyle.primary)
         async def rock(self, interaction: discord.Interaction, button: Button):
             await self.play(interaction, "rock")
-
         @discord.ui.button(label="Paper 📄", style=discord.ButtonStyle.success)
         async def paper(self, interaction: discord.Interaction, button: Button):
             await self.play(interaction, "paper")
-
         @discord.ui.button(label="Scissors ✂️", style=discord.ButtonStyle.danger)
         async def scissors(self, interaction: discord.Interaction, button: Button):
             await self.play(interaction, "scissors")
-
         async def play(self, interaction: discord.Interaction, user_choice: str):
             bot_choice = random.choice(["rock", "paper", "scissors"])
             if user_choice == bot_choice:
@@ -179,7 +172,6 @@ async def rps(interaction: discord.Interaction):
                 content=f"You chose **{user_choice}**, I chose **{bot_choice}**. {result}",
                 view=self
             )
-
     await interaction.response.send_message("Choose your move:", view=RPSView())
 
 @bot.tree.command(name="rps_play", description="Play your move in Rock, Paper, Scissors.")
@@ -191,14 +183,12 @@ async def rps_play(interaction: discord.Interaction, choice: str):
     if choice not in valid_choices:
         await interaction.response.send_message("Invalid choice. Use rock, paper, or scissors.")
         return
-
     if user_id not in rps_games:
         await interaction.response.send_message("You are not currently in a game.")
         return
 
     game = rps_games[user_id]
     opponent_id = game["opponent"]
-
     rps_games[user_id]["choice"] = choice
 
     if opponent_id in rps_games and rps_games[opponent_id]["choice"]:
@@ -217,9 +207,7 @@ async def rps_play(interaction: discord.Interaction, choice: str):
         await interaction.response.send_message(
             f"You played **{user_choice}**, <@{opponent_id}> played **{opponent_choice}**.\n{result}"
         )
-
-        del rps_games[user_id]
-        del rps_games[opponent_id]
+        del rps_games[user_id]; del rps_games[opponent_id]
     else:
         await interaction.response.send_message("Your move has been recorded. Waiting for your opponent to play.")
 
@@ -294,7 +282,6 @@ class TTTButton(discord.ui.Button):
         if interaction.user != current_turn:
             await interaction.response.send_message("⛔ It's not your turn!", ephemeral=True)
             return
-
         if board[self.index] != " ":
             await interaction.response.send_message("That spot is already taken!", ephemeral=True)
             return
@@ -329,16 +316,13 @@ class TTTButton(discord.ui.Button):
 class RematchButton(discord.ui.Button):
     def __init__(self, p1, p2, size, win_length):
         super().__init__(label="🔁 Rematch", style=discord.ButtonStyle.success)
-        self.p1 = p1
-        self.p2 = p2
-        self.size = size
-        self.win_length = win_length
+        self.p1 = p1; self.p2 = p2
+        self.size = size; self.win_length = win_length
 
     async def callback(self, interaction: discord.Interaction):
         if interaction.user != self.p1 and interaction.user != self.p2:
             await interaction.response.send_message("Only a player from the last game can request a rematch!", ephemeral=True)
             return
-
         if interaction.channel.id in ttt_games:
             await interaction.response.send_message("A new game is already active in this channel.", ephemeral=True)
             return
@@ -360,7 +344,6 @@ class RematchButton(discord.ui.Button):
 def check_winner(board, size, last_move, win_length):
     def get(x, y):
         return board[y * size + x] if 0 <= x < size and 0 <= y < size else None
-
     x0 = last_move % size
     y0 = last_move // size
     mark = get(x0, y0)
@@ -390,7 +373,7 @@ def render_text_board(board, size):
     return "```\n" + "\n".join(lines) + "\n```"
 
 # =========[ MESSAGE EVENTS / TTS ]=========
-# Map tên emoji -> cách đọc (để hết chữ thường cho chắc)
+# Map emoji -> cách đọc (key sẽ được chuẩn hoá về lowercase)
 EMOJI_READ_MAP = {
     "shock": "sốc",
     "cuoinhechmep": "cười nhếch mép",
@@ -403,7 +386,7 @@ EMOJI_READ_MAP = {
     "jennieffs": "Chen ni nhức nhức cái đầu",
     "jenniesmh": "chen ni lắc lắc đầu",
     "giay": "giãy đành đạch",
-    "giaydanhdach": "giãy đành đạch",
+    "giaydanhdach": "giãy đành đạch đành đạch",
     "mt_camxuc": "Mít thy cảm xúc",
     "airenepout": "Ái Linh chu mỏ",
     "yerisad": "xúc động",
@@ -421,35 +404,92 @@ EMOJI_READ_MAP = {
     "detcoi": "để tau coi",
     "deroicoi": "để ròi coi",
     "dead": "trết",
+    "ruvaysao": "rữ zị sao",
+    "frogsus": "ếch đa nghi",
+    "think0": "si nghĩ",
+    "gotnuocmat": "gớt nước mắt",
+    "doi": "dỗi",
+    "aaaaaa": "aaaaaaaaaaaaaaaaaaaaaaaa",
+    "dtty5sao": "tê oăn năm sao",
+    "gaugau": "gâu gâu",
+    "lasaonua": "là sao nữa",
+    "sadgers": "pepe xúc động chực trào nước mắt",
+    "hehehe": "e he he he he",
+    "emoji_195": "na tra buồn ngủ",
+    "doran_sohai": "đo ran sợ hãi",
+    "pnv_doiroi~1": "dỗi gòi",
+    "suy": "suy",
+    "rosestare1": "Rô zề nhìn khinh bỉ",
+    "vinhbiet": "vĩnh biệt cuộc đời",
+    "block": "lóc",
+    "zensob": "zen nít xu khóc lóc",
+    "omduochong": "anh ơi em nữa",
+    "que": "quê",
+    "shock~1": "ze ri sốc",
+    "aireneonly": "ạc ghẻ Ái Linh",
+    "yerisad": "xúc động",
+    "alisabored": "Lisa chán chả buồn nói",
+    "roseawkward": "Rô giề sượng trân",
+    "jenniepout": "chen ni chu mỏ",
+    "mt_thatym": "mít thy thả tym",
+    "mt_thatim": "mít thy thả tim",
+    "reveluvbonk": "man đu bong bong bong",
+    
 }
-# Chuẩn hoá key về lowercase (phòng lỡ tay thêm key hoa/thường lẫn lộn)
-EMOJI_READ_MAP = {k.lower(): v for k, v in EMOJI_READ_MAP.items()}
+# Chuẩn hoá key lowercase (để map nhận cả tên emoji HOA/thường)
+EMOJI_READ_MAP = { (k or "").lower(): v for k, v in EMOJI_READ_MAP.items() }
 
-# Regex bắt cả custom token <:name:id> / <a:name:id> và dạng gõ tay :name:
-EMOJI_TOKEN_RE = re.compile(r"<a?:([A-Za-z0-9_\-~]+):\d+>")
-PLAINTEXT_EMOJI_RE = re.compile(r"(?<!<):([A-Za-z0-9_\-~]+):(?!\d+>)")
+EMOJI_ANGLE_RE = re.compile(r"<a?:([A-Za-z0-9_]+):\d+>")
+EMOJI_PLAINTEXT_RE = re.compile(r"(?<!<):([A-Za-z0-9_]+):(?!\d+>)")
 
-def preprocess_emoji_text(text: str, message: discord.Message) -> str:
-    # 1) Thay các custom emoji đã được Discord parse sẵn (message.emojis)
+def _desc_from_name(name: str) -> str:
+    return EMOJI_READ_MAP.get((name or "").lower(), (name or "").replace("_", " "))
+
+def preprocess_emoji_text(text: str, message: discord.Message):
+    """
+    Trả về (processed_text, emoji_desc_list, is_emoji_only_on_text)
+    - processed_text: text đã thay emoji -> chữ
+    - emoji_desc_list: danh sách mô tả emoji phát hiện trong 'text'
+    - is_emoji_only_on_text: True nếu 'text' chỉ gồm emoji + khoảng trắng
+    """
+    original = text
+    emoji_descs = []
+
+    # emoji đã được discord parse
     for e in getattr(message, "emojis", []):
-        token = str(e)                       # "<:name:id>" hoặc "<a:name:id>"
+        token = str(e)      # "<:name:id>" / "<a:name:id>"
         name  = (e.name or "").lower()
-        rep   = EMOJI_READ_MAP.get(name, name.replace("_", " "))
-        text  = text.replace(token, rep)
+        rep   = _desc_from_name(name)
+        if token in text:
+            emoji_descs.append(rep)
+            text = text.replace(token, rep)
 
-    # 2) Thay các token custom còn sót theo regex (phòng hợp không có trong message.emojis)
-    text = EMOJI_TOKEN_RE.sub(
-        lambda m: EMOJI_READ_MAP.get(m.group(1).lower(), m.group(1).replace("_", " ")),
-        text
-    )
+    # angle-bracket còn sót
+    def repl_angle(m):
+        rep = _desc_from_name(m.group(1))
+        emoji_descs.append(rep)
+        return rep
+    text = EMOJI_ANGLE_RE.sub(repl_angle, text)
 
-    # 3) Thay trường hợp người dùng gõ thủ công :name:
-    text = PLAINTEXT_EMOJI_RE.sub(
-        lambda m: EMOJI_READ_MAP.get(m.group(1).lower(), m.group(1).replace("_", " ")),
-        text
-    )
+    # dạng :name:
+    def repl_plain(m):
+        rep = _desc_from_name(m.group(1))
+        emoji_descs.append(rep)
+        return rep
+    text = EMOJI_PLAINTEXT_RE.sub(repl_plain, text)
 
-    return text.strip()
+    # Kiểm tra phần sau 'mt' có CHỈ emoji không
+    only_emoji_stripped = EMOJI_ANGLE_RE.sub("", original)
+    only_emoji_stripped = EMOJI_PLAINTEXT_RE.sub("", only_emoji_stripped)
+    is_emoji_only = only_emoji_stripped.strip() == ""
+
+    if os.getenv("DEBUG_TTS") == "1":
+        print("RAW_AFTER_MT:", original)
+        print("EMOJI_DESCS:", emoji_descs)
+        print("TEXT_PROCESSED:", text)
+        print("ONLY_EMOJI?", is_emoji_only)
+
+    return text.strip(), emoji_descs, is_emoji_only
 
 @bot.event
 async def on_message(message):
@@ -460,17 +500,12 @@ async def on_message(message):
     lang_codes = {"en", "vi", "es", "ko", "zh"}
     valid_rps = ["rock", "paper", "scissors"]
 
-    # 🎲 Dice roll
     if content.startswith("mtdr"):
         result = random.randint(1, 6)
         await message.channel.send(f"🎲 You rolled a {result}!")
-
-    # 🪙 Coin flip
     elif content.startswith("mtfc"):
         result = random.choice(["Heads", "Tails"])
         await message.channel.send(f"🪙 The coin landed on: **{result}**")
-
-    # 🤖 RPS vs bot
     elif content.startswith("mtrps"):
         parts = content.split()
         if len(parts) < 2 or parts[1] not in valid_rps:
@@ -487,7 +522,6 @@ async def on_message(message):
         else:
             result = "You lose!"
         await message.channel.send(f"You chose **{user_choice}**, I chose **{bot_choice}**. {result}")
-
     elif content.startswith("mtrpsu"):
         await message.channel.send("Use `/rps_challenge @user` to start a PvP game!")
 
@@ -503,21 +537,24 @@ async def on_message(message):
 
                 if len(parts) >= 3 and parts[1] in lang_codes:
                     lang = parts[1]
-                    text = " ".join(parts[2:])   # sau "mt <lang> ..."
+                    text = " ".join(parts[2:])  # sau "mt <lang> ..."
                 else:
                     text = message.content[3:].strip()  # sau "mt "
 
-                # 🔁 Thay <:name:id> / :name: → câu đọc
-                text = preprocess_emoji_text(text, message)
+                processed, emoji_descs, only_emoji = preprocess_emoji_text(text, message)
 
-                if not text.strip():
+                # Nếu chỉ gửi emoji -> đọc "<user> đã gửi emoji: ..."
+                if only_emoji and emoji_descs:
+                    processed = f"{message.author.display_name} gửi emoji: " + ", ".join(emoji_descs)
+
+                if not processed.strip():
                     await message.channel.send("❌ Bạn chưa nhập nội dung cần nói.")
                     return
 
                 ensure_dir("generated")
                 out_path = "generated/message.mp3"
 
-                tts = gTTS(text=text, lang=lang)
+                tts = gTTS(text=processed, lang=lang)
                 tts.save(out_path)
 
                 if vc.is_playing():
@@ -528,15 +565,13 @@ async def on_message(message):
                     FFmpegPCMAudio(out_path, executable=FFMPEG_PATH),
                     after=lambda e: print("✅ Finished speaking")
                 )
-
-                print(f"🎤 {message.author.display_name} said: {text}")
+                print(f"🎤 {message.author.display_name} said: {processed}")
 
             except Exception as e:
                 print(f"gTTS message error: {e}")
         else:
             print(f"❌ {message.author.display_name} tried to TTS, but is not in the same VC as the bot.")
 
-    # ✅ LUÔN đặt cuối hàm để commands hoạt động
     await bot.process_commands(message)
 
 # =========[ GREET / BYE TTS TRONG VOICE ]=========
@@ -575,6 +610,9 @@ async def on_voice_state_update(member, before, after):
 async def ask(interaction: discord.Interaction, *, question: str):
     await interaction.response.defer()
     try:
+        if client is None:
+            await interaction.followup.send("OpenAI client chưa cấu hình.")
+            return
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": question}]
@@ -592,11 +630,13 @@ async def ask(interaction: discord.Interaction, *, question: str):
 async def speak(interaction: discord.Interaction, *, text: str):
     await interaction.response.defer()
     try:
+        if client is None:
+            await interaction.followup.send("OpenAI client chưa cấu hình.")
+            return
         ensure_dir("generated")
         file_path = "generated/speech.mp3"
-        # Streaming thẳng ra file
         with client.audio.speech.with_streaming_response.create(
-            model="tts-1",           # hoặc "gpt-4o-mini-tts" nếu bạn muốn
+            model="tts-1",
             voice="nova",
             input=text
         ) as resp:
@@ -610,14 +650,16 @@ async def speak(interaction: discord.Interaction, *, text: str):
         await interaction.followup.send("❌ Failed to generate speech.")
         print(f"OpenAI TTS error: {e}")
 
-
 @bot.tree.command(name="generate_image", description="Generate an image based on a prompt.")
 async def generate_image(interaction: discord.Interaction, *, prompt: str):
     await interaction.response.defer()
     try:
+        if client is None:
+            await interaction.followup.send("OpenAI client chưa cấu hình.")
+            return
         ensure_dir("generated")
         result = client.images.generate(
-            model="dall-e-3",        # hoặc "gpt-image-1" nếu bạn dùng model mới
+            model="dall-e-3",
             prompt=prompt,
             size="1024x1024",
             n=1
@@ -635,19 +677,16 @@ async def generate_image(interaction: discord.Interaction, *, prompt: str):
     except Exception as e:
         await interaction.followup.send("Failed to generate an image.")
         print(f"Error: {e}")
-    
+
 @bot.tree.command(name="upload_file", description="Generate and upload a file with custom content.")
 async def upload_file(interaction: discord.Interaction, *, content: str = "This is a sample file generated by the bot."):
     await interaction.response.defer()
     try:
         ensure_dir("generated")
-        # dùng file tạm để tránh đè
         with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", dir="generated", suffix=".txt") as f:
             f.write(content)
             tmp_path = f.name
-
         await interaction.followup.send("Here is your generated file:", file=File(tmp_path))
-        # (tuỳ chọn) xoá file sau khi gửi: os.remove(tmp_path)
     except Exception as e:
         await interaction.followup.send("Failed to generate the file.")
         print(f"Error: {e}")
@@ -657,9 +696,6 @@ async def upload_pdf(interaction: discord.Interaction, *, content: str = "This i
     await interaction.response.defer()
     try:
         ensure_dir("generated")
-
-        # ---- PDF với Unicode (tiếng Việt) ----
-        # Đảm bảo bạn có file font tại assets/fonts/DejaVuSans.ttf
         font_path = os.path.join("assets", "fonts", "DejaVuSans.ttf")
         if not os.path.isfile(font_path):
             await interaction.followup.send("❌ Missing font file for Unicode PDF (assets/fonts/DejaVuSans.ttf).")
@@ -670,17 +706,13 @@ async def upload_pdf(interaction: discord.Interaction, *, content: str = "This i
         pdf.add_page()
         pdf.add_font("DejaVu", "", font_path, uni=True)
         pdf.set_font("DejaVu", size=12)
-
-        # multi_cell để xuống dòng tự động
         pdf.multi_cell(0, 8, content)
 
-        # Lưu ra file tạm
         fd, file_path = tempfile.mkstemp(prefix="generated_", suffix=".pdf", dir="generated")
-        os.close(fd)  # đóng handle thấp
+        os.close(fd)
         pdf.output(file_path)
 
         await interaction.followup.send("Here is your generated PDF:", file=File(file_path))
-        # (tuỳ chọn) xoá file sau khi gửi: os.remove(file_path)
     except Exception as e:
         await interaction.followup.send("Failed to generate the PDF.")
         print(f"Error: {e}")
