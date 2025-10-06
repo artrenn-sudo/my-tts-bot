@@ -465,6 +465,14 @@ EMOJI_READ_MAP = {
     "daubung": "suy suy tư tư",
     "depko": "nín liền cho mẹ",
     "nanniah": "năng nỉ ó",
+    "xichdubuon": "xích đu buồn",
+    "khotin": "khó tin",
+    "noinhanh": "nói nhanh",
+    "damnhaukhum": "đúm nhao khum",
+    "ha": "hã hã",
+    "__": "dạ ơm ...",
+    "chelsea": "cheo xì chiến thắng, londin is blue",
+    "manunited": "mờ u số một, manchester is red",
     
 }
 # Chuẩn hoá key lowercase (để map nhận cả tên emoji HOA/thường)
